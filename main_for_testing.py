@@ -18,7 +18,6 @@ warnings.filterwarnings("ignore")
 
 np.random.seed()
 
-
 from decagon.deep.minibatch import EdgeMinibatchIterator
 from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.model import DecagonModel
@@ -37,9 +36,9 @@ Model_Parameters['threshold']=30
 Model_Parameters['Sep_set']=[['4', '3', '0'], ['1'], ['2']] #[[train sets],[validation set],[test set]]
 Model_Parameters['ecoder']='dedicom'
 Model_Parameters['Initial learning rate']=0.001
-Model_Parameters['Max epoch']=5#best_EPOCH
+Model_Parameters['Max epoch']=best_EPOCH#best_EPOCH
 Model_Parameters['hidden layer']=[2048, 1024]
-Model_Parameters['hidden layer']=[64, 32]
+#Model_Parameters['hidden layer']=[64, 32]
 Model_Parameters['Weight for L2 loss on embedding matrix']=0
 Model_Parameters['Dropout rate']=0.2
 Model_Parameters['l2']=1
