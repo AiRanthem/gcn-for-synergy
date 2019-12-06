@@ -55,7 +55,7 @@ cel_adj=load_variable('dataset/cel_adj')
 cel_drug_adj=load_variable('dataset/cel_drug_adj')
 drug_cel_adj=load_variable('dataset/drug_cel_adj')
 
-raw_labels=get_raw_input_file('dataset/labels.csv',sep=',')[1:]
+raw_labels=get_raw_input_file('dataset/drug combinations.csv',sep=',')[1:]
 labels=OrderedDict()
 for i in raw_labels:
     line,da,db,cel,ss,fold=i
