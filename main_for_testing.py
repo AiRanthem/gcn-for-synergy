@@ -46,7 +46,7 @@ Model_Parameters['Max margin parameter in hinge loss']=0.1
 Model_Parameters['minibatch size']=20
 Model_Parameters['Bias term']=True
 Model_Parameters['val_test_size']=0.05
-Model_Parameters['LOSS']='MSE'
+Model_Parameters['LOSS']='Cross-entropy'
 
 PRINT_PROGRESS_EVERY=20
 
@@ -77,14 +77,15 @@ folds={i:[] for i in ['4','2','3','1','0']}
 for entry,content in labels.items():
     da,db,cel=entry.split('_')
     synergy_score=content[0]
-    labels_for_reg[idx_cellLine[cel]][(idx_drugs[da],idx_drugs[db])]=synergy_score
-    labels_for_reg[idx_cellLine[cel]][(idx_drugs[db],idx_drugs[da])]=synergy_score
-    labels_for_reg[idx_cellLine[cel]+n_cel][(idx_drugs[da],idx_drugs[db])]=synergy_score
-    labels_for_reg[idx_cellLine[cel]+n_cel][(idx_drugs[db],idx_drugs[da])]=synergy_score
+    labels_for_reg[idx_cellLine[cel]][(idx_drugs[da],idx_drugs[db])]=float(synergy_score>Model_Parameters['threshold'])
+    labels_for_reg[idx_cellLine[cel]][(idx_drugs[db],idx_drugs[da])]=float(synergy_score>Model_Parameters['threshold'])
+    labels_for_reg[idx_cellLine[cel]+n_cel][(idx_drugs[da],idx_drugs[db])]=float(synergy_score>Model_Parameters['threshold'])
+    labels_for_reg[idx_cellLine[cel]+n_cel][(idx_drugs[db],idx_drugs[da])]=float(synergy_score>Model_Parameters['threshold'])
     if synergy_score >=Model_Parameters['threshold']:
         drug_drug_adj_list[idx_cellLine[cel]][idx_drugs[da]][idx_drugs[db]]=1
         drug_drug_adj_list[idx_cellLine[cel]][idx_drugs[db]][idx_drugs[da]]=1
     folds[content[1]].append(entry)
+
 drug_drug_adj=[sp.csr_matrix(i) for i in drug_drug_adj_list]
 
 def get_set(fold_list,threshold):
@@ -278,9 +279,13 @@ feed_dict = {}
 # Train model
 ###########################################################
 
+def sigmoid(x):
+    return 1/(1 + np.exp(-x))
+
 def get_accuracy_scores(edges_pos, edges_neg, edge_type):
+
     feed_dict.update({placeholders['dropout']: 0})
-    feed_dict.update({placeholders['batch_edge_type_idx']: edge_type2idx[edge_type]})
+    feed_dict.update({placeholders['batch_edge_type_idx']: edge_type2idx[edge_type]}) #current_edge_type_idx
     feed_dict.update({placeholders['batch_row_edge_type']: edge_type[0]})
     feed_dict.update({placeholders['batch_col_edge_type']: edge_type[1]})
 
@@ -288,32 +293,32 @@ def get_accuracy_scores(edges_pos, edges_neg, edge_type):
 
     predicted_dic=OrderedDict()
     if edge_type2idx[edge_type]>3:
-        synergy_score_dic=labels_for_reg[edge_type2idx[edge_type]-4]
         preds_score = []
         labels_all=[]
-        synergy_score=[]
         for u, v in edges_pos[edge_type[:2]][edge_type[2]]:
             ave=(rec[u, v]+rec[v, u])/2
             predicted_dic[u, v]=ave
             predicted_dic[v, u]=ave
             labels_all.append(1)
             preds_score.append(ave)
-            synergy_score.append(synergy_score_dic[(u, v)])
         for u, v in edges_neg[edge_type[:2]][edge_type[2]]:
             ave=(rec[u, v]+rec[v, u])/2
             predicted_dic[u, v]=ave
             predicted_dic[v, u]=ave
             labels_all.append(0)
             preds_score.append(ave)
-            synergy_score.append(synergy_score_dic[(u, v)])
+
+        preds_score=np.array(preds_score)
         pred=np.array([0]*len(preds_score))
-        pred[np.array(preds_score)>30]=1
+        pred[sigmoid(preds_score)>0.5]=1
+
         roc_sc = metrics.roc_auc_score(labels_all, preds_score)
         aupr_sc = metrics.average_precision_score(labels_all, preds_score)
-        mse=metrics.mean_squared_error(synergy_score, preds_score)
-        pearson=stats.pearsonr(synergy_score, preds_score)[0]
+        #mse=metrics.mean_squared_error(synergy_score, preds_score)
+        #pearson=stats.pearsonr(synergy_score, preds_score)[0]
         bacc=metrics.balanced_accuracy_score(labels_all, pred)
         acc=metrics.accuracy_score(labels_all, pred)
+        prec=metrics.precision_score(labels_all, pred)
     else:
         preds_score = []
         labels_all=[]
@@ -329,10 +334,8 @@ def get_accuracy_scores(edges_pos, edges_neg, edge_type):
             preds_score.append(rec[u, v])
         roc_sc = metrics.roc_auc_score(labels_all, preds_score)
         aupr_sc = metrics.average_precision_score(labels_all, preds_score)
-        mse = 999
-        pearson,bacc,acc = 0,0,0
-
-    return roc_sc, aupr_sc,mse,pearson,bacc,acc,rec,cost,predicted_dic
+        prec,bacc,acc = 0,0,0
+    return roc_sc, aupr_sc,bacc,acc,prec,rec,cost,predicted_dic
 
 print("\n***Train model***")
 train_loss_eve=OrderedDict()
@@ -379,7 +382,7 @@ for et in range(num_edge_types):
         count=' '
         rec_log=False
     try:
-        roc_score, auprc_score,test_mse,test_pearson,test_bacc,test_acc,test_rec,test_loss,et_predicted_dic = get_accuracy_scores(
+        roc_score, auprc_score,test_bacc,test_acc,test_rec,test_loss,et_predicted_dic = get_accuracy_scores(
             minibatch.test_edges, minibatch.test_edges_false,idx2edge_type[et])
         if rec_log:
             rec[edge_Type]=test_rec
