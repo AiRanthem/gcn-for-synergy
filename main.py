@@ -1,7 +1,10 @@
 from __future__ import division
+from decagon.deep.model import DecagonModel
+from decagon.deep.optimizer import DecagonOptimizer
+from decagon.deep.minibatch import EdgeMinibatchIterator
 from __future__ import print_function
 
-from collections import OrderedDict,Counter
+from collections import OrderedDict, Counter
 import time
 import os
 import numpy as np
@@ -13,15 +16,13 @@ from preprocessing import *
 import random
 import tensorflow as tf
 import warnings
+
 warnings.filterwarnings("ignore")
 
 
-from decagon.deep.minibatch import EdgeMinibatchIterator
-from decagon.deep.optimizer import DecagonOptimizer
-from decagon.deep.model import DecagonModel
-
 # Train on GPU
-CUDA_VISIBLE_DEVICES='0'
+# print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
+CUDA_VISIBLE_DEVICES = '0'
 os.environ["CUDA_DEVICE_ORDER"] = 'PCI_BUS_ID'
 os.environ["CUDA_VISIBLE_DEVICES"] = CUDA_VISIBLE_DEVICES
 config = tf.ConfigProto()
@@ -30,98 +31,109 @@ config.gpu_options.allow_growth = True
 np.random.seed()
 
 # Setting Parameters
-Model_Parameters=OrderedDict()
-Model_Parameters['Negative sample size']=30
-Model_Parameters['Neg_sample_weights']=1
-Model_Parameters['Norm']=1
-Model_Parameters['threshold']=30
-Model_Parameters['Sep_set']=[['4', '3', '0'], ['1'], ['2']] #[[training sets],[validation set],[test set]]
-Model_Parameters['ecoder']='dedicom'
-Model_Parameters['EarlyStop Patience']=5
-Model_Parameters['Initial learning rate']=0.001
-Model_Parameters['Max epoch']=2
-Model_Parameters['hidden layer']=[2048, 1024]
-#Model_Parameters['hidden layer']=[1024, 512]
-Model_Parameters['Weight for L2 loss on embedding matrix']=0
-Model_Parameters['Dropout rate']=0.2
-Model_Parameters['l2']=1
-Model_Parameters['Max margin parameter in hinge loss']=0.1
-Model_Parameters['minibatch size']=20
-Model_Parameters['Bias term']=True
-Model_Parameters['val_test_size']=0.2 #for drug-cel and cel-cel
-Model_Parameters['LOSS']='Cross-entropy'
+Model_Parameters = OrderedDict()
+Model_Parameters['Negative sample size'] = 30
+Model_Parameters['Neg_sample_weights'] = 1
+Model_Parameters['Norm'] = 1
+Model_Parameters['threshold'] = 30
+# [[training sets],[validation set],[test set]]
+Model_Parameters['Sep_set'] = [['4', '3', '0'], ['1'], ['2']]
+Model_Parameters['ecoder'] = 'dedicom'
+Model_Parameters['EarlyStop Patience'] = 5
+Model_Parameters['Initial learning rate'] = 0.001
+Model_Parameters['Max epoch'] = 2
+Model_Parameters['hidden layer'] = [2048, 1024]
+# Model_Parameters['hidden layer']=[1024, 512]
+Model_Parameters['Weight for L2 loss on embedding matrix'] = 0
+Model_Parameters['Dropout rate'] = 0.2
+Model_Parameters['l2'] = 1
+Model_Parameters['Max margin parameter in hinge loss'] = 0.1
+Model_Parameters['minibatch size'] = 20
+Model_Parameters['Bias term'] = True
+Model_Parameters['val_test_size'] = 0.2  # for drug-cel and cel-cel
+Model_Parameters['LOSS'] = 'Cross-entropy'
 
-PRINT_PROGRESS_EVERY=20
+PRINT_PROGRESS_EVERY = 20
 
 # Data loading and preprocessing
-cel_adj=load_variable('dataset/cel_adj')
-cel_drug_adj=load_variable('dataset/cel_drug_adj')
-drug_cel_adj=load_variable('dataset/drug_cel_adj')
+cel_adj = load_variable('dataset/cel_adj')
+cel_drug_adj = load_variable('dataset/cel_drug_adj')
+drug_cel_adj = load_variable('dataset/drug_cel_adj')
 
-raw_labels=get_raw_input_file('dataset/drug combinations.csv',sep=',')[1:]
-labels=OrderedDict()
+raw_labels = get_raw_input_file('dataset/drug combinations.csv', sep=',')[1:]
+labels = OrderedDict()
 for i in raw_labels:
-    line,da,db,cel,ss,fold=i
+    line, da, db, cel, ss, fold = i
     if line in labels:
-        labels[line]=[(labels[line][0]+float(ss))/2,fold]
+        labels[line] = [(labels[line][0] + float(ss)) / 2, fold]
     else:
-        labels[line]=[float(ss),fold]
+        labels[line] = [float(ss), fold]
 
-all_drugs=extending_set([i.split('_')[:2] for i in labels.keys()])
-n_drugs=len(all_drugs)
-cellLine=sset([i.split('_')[2] for i in labels.keys()])
-n_cel=len(cellLine)
-idx_drugs={i[1]:i[0] for i in enumerate(all_drugs)}
-idx_cellLine={i[1]:i[0] for i in enumerate(cellLine)}
+all_drugs = extending_set([i.split('_')[:2] for i in labels.keys()])
+n_drugs = len(all_drugs)
+cellLine = sset([i.split('_')[2] for i in labels.keys()])
+n_cel = len(cellLine)
+idx_drugs = {i[1]: i[0] for i in enumerate(all_drugs)}
+idx_cellLine = {i[1]: i[0] for i in enumerate(cellLine)}
 
-labels_for_reg={j:{} for j in range(len(idx_cellLine)*2)}
-drug_drug_adj_list= [np.zeros((n_drugs,n_drugs)) for i in cellLine]
-folds={i:[] for i in ['4','2','3','1','0']}
-for entry,content in labels.items():
-    da,db,cel=entry.split('_')
-    synergy_score=content[0]
-    labels_for_reg[idx_cellLine[cel]][(idx_drugs[da],idx_drugs[db])]=float(synergy_score>Model_Parameters['threshold'])
-    labels_for_reg[idx_cellLine[cel]][(idx_drugs[db],idx_drugs[da])]=float(synergy_score>Model_Parameters['threshold'])
-    labels_for_reg[idx_cellLine[cel]+n_cel][(idx_drugs[da],idx_drugs[db])]=float(synergy_score>Model_Parameters['threshold'])
-    labels_for_reg[idx_cellLine[cel]+n_cel][(idx_drugs[db],idx_drugs[da])]=float(synergy_score>Model_Parameters['threshold'])
-    if synergy_score >=Model_Parameters['threshold']:
-        drug_drug_adj_list[idx_cellLine[cel]][idx_drugs[da]][idx_drugs[db]]=1
-        drug_drug_adj_list[idx_cellLine[cel]][idx_drugs[db]][idx_drugs[da]]=1
+labels_for_reg = {j: {} for j in range(len(idx_cellLine) * 2)}
+drug_drug_adj_list = [np.zeros((n_drugs, n_drugs)) for i in cellLine]
+folds = {i: [] for i in ['4', '2', '3', '1', '0']}
+for entry, content in labels.items():
+    da, db, cel = entry.split('_')
+    synergy_score = content[0]
+    labels_for_reg[idx_cellLine[cel]][(idx_drugs[da], idx_drugs[db])] = float(
+        synergy_score > Model_Parameters['threshold'])
+    labels_for_reg[idx_cellLine[cel]][(idx_drugs[db], idx_drugs[da])] = float(
+        synergy_score > Model_Parameters['threshold'])
+    labels_for_reg[idx_cellLine[cel] + n_cel][(idx_drugs[da], idx_drugs[db])] = float(
+        synergy_score > Model_Parameters['threshold'])
+    labels_for_reg[idx_cellLine[cel] + n_cel][(idx_drugs[db], idx_drugs[da])] = float(
+        synergy_score > Model_Parameters['threshold'])
+    if synergy_score >= Model_Parameters['threshold']:
+        drug_drug_adj_list[idx_cellLine[cel]][idx_drugs[da]][idx_drugs[db]] = 1
+        drug_drug_adj_list[idx_cellLine[cel]][idx_drugs[db]][idx_drugs[da]] = 1
     folds[content[1]].append(entry)
-drug_drug_adj=[sp.csr_matrix(i) for i in drug_drug_adj_list]
+drug_drug_adj = [sp.csr_matrix(i) for i in drug_drug_adj_list]
 
-def get_set(fold_list,threshold):
-    aim_fold=extending([folds[i] for i in fold_list])
-    edges_t={i:[] for i in list(range(n_cel*2))}
-    edges_f={i:[] for i in list(range(n_cel*2))}
+
+def get_set(fold_list, threshold):
+    aim_fold = extending([folds[i] for i in fold_list])
+    edges_t = {i: [] for i in list(range(n_cel * 2))}
+    edges_f = {i: [] for i in list(range(n_cel * 2))}
     for i in aim_fold:
-        d1,d2,cel=i.split('_')
-        cel_ind=idx_cellLine[cel]
-        d1_idx,d2_idx=idx_drugs[d1],idx_drugs[d2]
-        if labels[i][0]>=threshold:
-            edges_t[cel_ind].append([d1_idx,d2_idx])
-            edges_t[cel_ind].append([d2_idx,d1_idx])
-            edges_t[cel_ind+n_cel].append([d1_idx,d2_idx])
-            edges_t[cel_ind+n_cel].append([d2_idx,d1_idx])
+        d1, d2, cel = i.split('_')
+        cel_ind = idx_cellLine[cel]
+        d1_idx, d2_idx = idx_drugs[d1], idx_drugs[d2]
+        if labels[i][0] >= threshold:
+            edges_t[cel_ind].append([d1_idx, d2_idx])
+            edges_t[cel_ind].append([d2_idx, d1_idx])
+            edges_t[cel_ind + n_cel].append([d1_idx, d2_idx])
+            edges_t[cel_ind + n_cel].append([d2_idx, d1_idx])
         else:
-            edges_f[cel_ind].append([d1_idx,d2_idx])
-            edges_f[cel_ind].append([d2_idx,d1_idx])
-            edges_f[cel_ind+n_cel].append([d1_idx,d2_idx])
-            edges_f[cel_ind+n_cel].append([d2_idx,d1_idx])
-    return edges_t,edges_f
+            edges_f[cel_ind].append([d1_idx, d2_idx])
+            edges_f[cel_ind].append([d2_idx, d1_idx])
+            edges_f[cel_ind + n_cel].append([d1_idx, d2_idx])
+            edges_f[cel_ind + n_cel].append([d2_idx, d1_idx])
+    return edges_t, edges_f
 
-tra_edges_t,tra_edges_f=get_set(Model_Parameters['Sep_set'][0],Model_Parameters['threshold'])
-val_edges_t,val_edges_f=get_set(Model_Parameters['Sep_set'][1],Model_Parameters['threshold'])
-test_edges_t,test_edges_f=get_set(Model_Parameters['Sep_set'][2],Model_Parameters['threshold'])
 
-cel_info=load_variable('dataset/cel_info')
-cel_feat,cel_nonzero_feat, cel_num_feat=get_feat(cel_info)
+tra_edges_t, tra_edges_f = get_set(
+    Model_Parameters['Sep_set'][0], Model_Parameters['threshold'])
+val_edges_t, val_edges_f = get_set(
+    Model_Parameters['Sep_set'][1], Model_Parameters['threshold'])
+test_edges_t, test_edges_f = get_set(
+    Model_Parameters['Sep_set'][2], Model_Parameters['threshold'])
 
-drug_info=load_variable('dataset/drug_info')
-drug_feat,drug_nonzero_feat, drug_num_feat=get_feat(drug_info)
+cel_info = load_variable('dataset/cel_info')
+cel_feat, cel_nonzero_feat, cel_num_feat = get_feat(cel_info)
+
+drug_info = load_variable('dataset/drug_info')
+drug_feat, drug_nonzero_feat, drug_num_feat = get_feat(drug_info)
 
 cel_degrees = np.array(cel_adj.sum(axis=0)).squeeze()
-drug_degrees_list = [np.array([len(np.flatnonzero(row)) for row in drug_adj.toarray()]) for drug_adj in drug_drug_adj]
+drug_degrees_list = [np.array([len(np.flatnonzero(row))
+                               for row in drug_adj.toarray()]) for drug_adj in drug_drug_adj]
 
 # Data representation
 adj_mats_orig = {
@@ -149,7 +161,8 @@ feat = {
     1: drug_feat,
 }
 
-edge_type2dim = {k: [adj.shape for adj in adjs] for k, adjs in adj_mats_orig.items()}
+edge_type2dim = {k: [adj.shape for adj in adjs]
+                 for k, adjs in adj_mats_orig.items()}
 edge_type2decoder = {
     (0, 0): 'bilinear',
     (0, 1): 'bilinear',
@@ -160,43 +173,49 @@ edge_type2decoder = {
 edge_types = {k: len(v) for k, v in adj_mats_orig.items()}
 num_edge_types = sum(edge_types.values())
 
-r=0
+r = 0
 edge_type2idx = {}
 idx2edge_type = {}
 for i, j in edge_types:
-    for k in range(edge_types[i,j]):
+    for k in range(edge_types[i, j]):
         edge_type2idx[i, j, k] = r
         idx2edge_type[r] = i, j, k
         r += 1
 
-tra_f_no_et=OrderedDict()
+tra_f_no_et = OrderedDict()
 for ind, et in idx2edge_type.items():
-    if ind<4: #(0,1)
-        mat=adj_mats_orig[et[:2]][et[2]]
-        tra_f_no_et[ind]=np.argwhere(1-mat.toarray()).tolist()
+    if ind < 4:  # (0,1)
+        mat = adj_mats_orig[et[:2]][et[2]]
+        tra_f_no_et[ind] = np.argwhere(1 - mat.toarray()).tolist()
     else:
-        tra_f_no_et[ind]=[list(i) for i in tra_edges_f[ind-4]]
+        tra_f_no_et[ind] = [list(i) for i in tra_edges_f[ind - 4]]
 
-idx2name={}
-for k,v in idx2edge_type.items():
-    if k>=4:
-        idx2name[k]=cellLine[v[2]%n_cel]
+idx2name = {}
+for k, v in idx2edge_type.items():
+    if k >= 4:
+        idx2name[k] = cellLine[v[2] % n_cel]
     else:
-        idx2name[k]=idx2edge_type[i]
+        idx2name[k] = idx2edge_type[i]
 
 ###########################################################
 # Settings and placeholders
 ###########################################################
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_float('learning_rate', Model_Parameters['Initial learning rate'], 'Initial learning rate.')
+flags.DEFINE_float(
+    'learning_rate', Model_Parameters['Initial learning rate'], 'Initial learning rate.')
 flags.DEFINE_integer('Max_epoch', Model_Parameters['Max epoch'], 'Max epoch.')
-flags.DEFINE_float('weight_decay', Model_Parameters['Weight for L2 loss on embedding matrix'], 'Weight for L2 loss on embedding matrix.')
-flags.DEFINE_float('dropout', Model_Parameters['Dropout rate'], 'Dropout rate (1 - keep probability).')
-flags.DEFINE_integer('l2', Model_Parameters['l2'],'l2')
-flags.DEFINE_float('max_margin', Model_Parameters['Max margin parameter in hinge loss'], 'Max margin parameter in hinge loss')
-flags.DEFINE_integer('batch_size', Model_Parameters['minibatch size'], 'minibatch size.')
+flags.DEFINE_float('weight_decay', Model_Parameters['Weight for L2 loss on embedding matrix'],
+                   'Weight for L2 loss on embedding matrix.')
+flags.DEFINE_float(
+    'dropout', Model_Parameters['Dropout rate'], 'Dropout rate (1 - keep probability).')
+flags.DEFINE_integer('l2', Model_Parameters['l2'], 'l2')
+flags.DEFINE_float('max_margin', Model_Parameters['Max margin parameter in hinge loss'],
+                   'Max margin parameter in hinge loss')
+flags.DEFINE_integer(
+    'batch_size', Model_Parameters['minibatch size'], 'minibatch size.')
 flags.DEFINE_boolean('bias', Model_Parameters['Bias term'], 'Bias term.')
+
 
 def construct_placeholders(edge_types):
     placeholders = {
@@ -212,11 +231,12 @@ def construct_placeholders(edge_types):
     }
     placeholders.update({
         'adj_mats_%d,%d,%d' % (i, j, k): tf.sparse_placeholder(tf.float32)
-        for i, j in edge_types for k in range(edge_types[i,j])})
+        for i, j in edge_types for k in range(edge_types[i, j])})
     placeholders.update({
         'feat_%d' % i: tf.sparse_placeholder(tf.float32)
         for i, _ in edge_types})
     return placeholders
+
 
 print("*****Defining placeholders*****")
 placeholders = construct_placeholders(edge_types)
@@ -244,7 +264,6 @@ minibatch = EdgeMinibatchIterator(
     idx2edge_type=idx2edge_type,
     iter_len=sum(edge_types.values()),
 )
-
 
 print("\n***Create model***")
 model = DecagonModel(
@@ -278,128 +297,143 @@ sess = tf.Session(config=config)
 sess.run(tf.global_variables_initializer())
 feed_dict = {}
 
+
 ###########################################################
 # Train model
 ###########################################################
 def sigmoid(x):
-    return 1/(1 + np.exp(-x))
+    return 1 / (1 + np.exp(-x))
+
 
 def get_accuracy_scores(edges_pos, edges_neg, edge_type):
-
     feed_dict.update({placeholders['dropout']: 0})
-    feed_dict.update({placeholders['batch_edge_type_idx']: edge_type2idx[edge_type]}) #current_edge_type_idx
+    # current_edge_type_idx
+    feed_dict.update(
+        {placeholders['batch_edge_type_idx']: edge_type2idx[edge_type]})
     feed_dict.update({placeholders['batch_row_edge_type']: edge_type[0]})
     feed_dict.update({placeholders['batch_col_edge_type']: edge_type[1]})
 
-    cost,rec = sess.run([opt.cost,opt.predictions], feed_dict=feed_dict)
+    cost, rec = sess.run([opt.cost, opt.predictions], feed_dict=feed_dict)
 
-    predicted_dic=OrderedDict()
-    if edge_type2idx[edge_type]>3:
+    predicted_dic = OrderedDict()
+    if edge_type2idx[edge_type] > 3:
         preds_score = []
-        labels_all=[]
+        labels_all = []
         for u, v in edges_pos[edge_type[:2]][edge_type[2]]:
-            ave=(rec[u, v]+rec[v, u])/2
-            predicted_dic[u, v]=ave
-            predicted_dic[v, u]=ave
+            ave = (rec[u, v] + rec[v, u]) / 2
+            predicted_dic[u, v] = ave
+            predicted_dic[v, u] = ave
             labels_all.append(1)
             preds_score.append(ave)
         for u, v in edges_neg[edge_type[:2]][edge_type[2]]:
-            ave=(rec[u, v]+rec[v, u])/2
-            predicted_dic[u, v]=ave
-            predicted_dic[v, u]=ave
+            ave = (rec[u, v] + rec[v, u]) / 2
+            predicted_dic[u, v] = ave
+            predicted_dic[v, u] = ave
             labels_all.append(0)
             preds_score.append(ave)
 
-        preds_score=np.array(preds_score)
-        pred=np.array([0]*len(preds_score))
-        pred[sigmoid(preds_score)>0.5]=1
+        preds_score = np.array(preds_score)
+        pred = np.array([0] * len(preds_score))
+        pred[sigmoid(preds_score) > 0.5] = 1
 
         roc_sc = metrics.roc_auc_score(labels_all, preds_score)
         aupr_sc = metrics.average_precision_score(labels_all, preds_score)
-        #mse=metrics.mean_squared_error(synergy_score, preds_score)
-        #pearson=stats.pearsonr(synergy_score, preds_score)[0]
-        bacc=metrics.balanced_accuracy_score(labels_all, pred)
-        acc=metrics.accuracy_score(labels_all, pred)
-        prec=metrics.precision_score(labels_all, pred)
+        # mse=metrics.mean_squared_error(synergy_score, preds_score)
+        # pearson=stats.pearsonr(synergy_score, preds_score)[0]
+        bacc = metrics.balanced_accuracy_score(labels_all, pred)
+        acc = metrics.accuracy_score(labels_all, pred)
+        prec = metrics.precision_score(labels_all, pred)
     else:
         preds_score = []
-        labels_all=[]
+        labels_all = []
         for u, v in edges_pos[edge_type[:2]][edge_type[2]]:
-            predicted_dic[u, v]=rec[u, v]
-            predicted_dic[v, u]=rec[u, v]
+            predicted_dic[u, v] = rec[u, v]
+            predicted_dic[v, u] = rec[u, v]
             labels_all.append(1)
             preds_score.append(rec[u, v])
         for u, v in edges_neg[edge_type[:2]][edge_type[2]]:
-            predicted_dic[u, v]=rec[u, v]
-            predicted_dic[v, u]=rec[u, v]
+            predicted_dic[u, v] = rec[u, v]
+            predicted_dic[v, u] = rec[u, v]
             labels_all.append(0)
             preds_score.append(rec[u, v])
         roc_sc = metrics.roc_auc_score(labels_all, preds_score)
         aupr_sc = metrics.average_precision_score(labels_all, preds_score)
-        prec,bacc,acc = 0,0,0
-    return roc_sc, aupr_sc,bacc,acc,prec,rec,cost,predicted_dic
+        prec, bacc, acc = 0, 0, 0
+    return roc_sc, aupr_sc, bacc, acc, prec, rec, cost, predicted_dic
+
 
 print("\n***Train model***")
-output_Train_model=OrderedDict()
-val_loss_eve=OrderedDict()
-val_loss=OrderedDict()
-smooth_val_loss=OrderedDict()
-val_l_min=np.inf
-patience=0
+output_Train_model = OrderedDict()
+val_loss_eve = OrderedDict()
+val_loss = OrderedDict()
+smooth_val_loss = OrderedDict()
+val_l_min = np.inf
+patience = 0
 for raw_epoch in range(FLAGS.Max_epoch):
-#for raw_epoch in range(10):
-    epoch=raw_epoch
-    print("Epoch:", "%04d" % (epoch + 1),"time: ", time.ctime()[:-5])
-    val_loss_eve[epoch]=[]
-    output_Train_model['Epoch&Iter']=['Edge','epoch','train_loss','val_cost','val_roc','val_auprc','val_mse','val_pearson','time']
+    # for raw_epoch in range(10):
+    epoch = raw_epoch
+    print("Epoch:", "%04d" % (epoch + 1), "time: ", time.ctime()[:-5])
+    val_loss_eve[epoch] = []
+    output_Train_model['Epoch&Iter'] = ['Edge', 'epoch', 'train_loss', 'val_cost', 'val_roc', 'val_auprc', 'val_mse',
+                                        'val_pearson', 'time']
     minibatch.shuffle()
     itr = 0
-    save_epoch=False
+    save_epoch = False
     while not minibatch.end():
-        feed_dict = minibatch.next_minibatch_feed_dict(placeholders=placeholders)
+        feed_dict = minibatch.next_minibatch_feed_dict(
+            placeholders=placeholders)
         feed_dict = minibatch.update_feed_dict(
             feed_dict=feed_dict,
             dropout=FLAGS.dropout,
             placeholders=placeholders)
-        outs = sess.run([opt.opt_op, opt.cost, opt.batch_edge_type_idx], feed_dict=feed_dict)
+        outs = sess.run(
+            [opt.opt_op, opt.cost, opt.batch_edge_type_idx], feed_dict=feed_dict)
         train_cost = outs[1]
         batch_edge_type = outs[2]
-        val_auc, val_auprc,val_bacc,val_acc,val_prec,val_rec,val_cost,val_predicted= get_accuracy_scores(
+        val_auc, val_auprc, val_bacc, val_acc, val_prec, val_rec, val_cost, val_predicted = get_accuracy_scores(
             minibatch.val_edges, minibatch.val_edges_false,
             idx2edge_type[minibatch.current_edge_type_idx])
-        if minibatch.current_edge_type_idx >3:
+        if minibatch.current_edge_type_idx > 3:
             val_loss_eve[epoch].append(val_cost)
         if itr % PRINT_PROGRESS_EVERY == 0:
-            print("Edge:", "%-3s%-14s" % (batch_edge_type,idx2name[minibatch.current_edge_type_idx]),
-                  "tra_loss=", "{:.3f}".format(train_cost), "\tval_loss=", "{:.3f}".format(val_cost),\
-                  "\tval_roc=", "{:.3f}".format(val_auc), "\tval_auprc=", "{:.3f}".format(val_auprc),\
-                 "\tval_bacc=", "{:.3f}".format(val_bacc), "\tval_acc=", "{:.3f}".format(val_acc),\
-            "\tval_prec=", "{:.3f}".format(val_prec))
-            output_Train_model[str(epoch + 1)+'&'+str((itr + 1))]=[batch_edge_type,\
-        idx2name[minibatch.current_edge_type_idx],train_cost,val_cost,val_auc,val_auprc,val_bacc,val_acc,val_prec,time.ctime()]
+            print("Edge:", "%-3s%-14s" % (batch_edge_type, idx2name[minibatch.current_edge_type_idx]),
+                  "tra_loss=", "{:.3f}".format(
+                      train_cost), "\tval_loss=", "{:.3f}".format(val_cost),
+                  "\tval_roc=", "{:.3f}".format(
+                      val_auc), "\tval_auprc=", "{:.3f}".format(val_auprc),
+                  "\tval_bacc=", "{:.3f}".format(
+                      val_bacc), "\tval_acc=", "{:.3f}".format(val_acc),
+                  "\tval_prec=", "{:.3f}".format(val_prec))
+            output_Train_model[str(epoch + 1) + '&' + str((itr + 1))] = [batch_edge_type,
+                                                                         idx2name[minibatch.current_edge_type_idx],
+                                                                         train_cost, val_cost, val_auc, val_auprc,
+                                                                         val_bacc, val_acc, val_prec, time.ctime()]
         itr += 1
-    val_loss[epoch]=sum(val_loss_eve[epoch])/len(val_loss_eve[epoch])
-    print ('*** Epoch NO.',(epoch + 1),' ***')
-    p_time=time.time()
-    if epoch>=3:
-        smooth_val_loss[epoch]=np.mean([val_loss[i] for i in range(epoch-3,epoch)])
+    val_loss[epoch] = sum(val_loss_eve[epoch]) / len(val_loss_eve[epoch])
+    print('*** Epoch NO.', (epoch + 1), ' ***')
+    p_time = time.time()
+    if epoch >= 3:
+        smooth_val_loss[epoch] = np.mean(
+            [val_loss[i] for i in range(epoch - 3, epoch)])
     else:
-        smooth_val_loss[epoch]=val_loss[epoch]
-    if val_l_min>smooth_val_loss[epoch]:
-        val_l_min=smooth_val_loss[epoch]
-        max_performance=val_auc, val_auprc,val_bacc,val_acc,val_prec
+        smooth_val_loss[epoch] = val_loss[epoch]
+    if val_l_min > smooth_val_loss[epoch]:
+        val_l_min = smooth_val_loss[epoch]
+        max_performance = val_auc, val_auprc, val_bacc, val_acc, val_prec
 
-        patience=0
+        patience = 0
     else:
-        patience+=1
-        print ('patience:',patience)
-    print ('\nSmooth validation loss:%f, the Minimum validation loss:%f'%(smooth_val_loss[epoch],val_l_min))
-    if patience> Model_Parameters['EarlyStop Patience']:
-        print('Early stop! Min loss:%f in No.%d epoch '%(val_l_min,epoch))
+        patience += 1
+        print('patience:', patience)
+    print('\nSmooth validation loss:%f, the Minimum validation loss:%f' %
+          (smooth_val_loss[epoch], val_l_min))
+    if patience > Model_Parameters['EarlyStop Patience']:
+        print('Early stop! Min loss:%f in No.%d epoch ' % (val_l_min, epoch))
         break
 
 print("\n***Optimization finished!***")
 
-print ("\nThe best Epoch:",epoch-patience)
-print ("\nThe best performance:",max_performance)
-print ("\nThe performance now:",val_auc, val_auprc,val_bacc,val_acc,val_prec)
+print("\nThe best Epoch:", epoch - patience)
+print("\nThe best performance:", max_performance)
+print("\nThe performance now:", val_auc,
+      val_auprc, val_bacc, val_acc, val_prec)
