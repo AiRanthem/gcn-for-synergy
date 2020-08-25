@@ -8,6 +8,7 @@ from .layers import GraphConvolutionMulti, GraphConvolutionSparseMulti, \
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
+
 class Model(object):
     def __init__(self, **kwargs):
         allowed_kwargs = {'name', 'logging'}
@@ -44,7 +45,7 @@ class Model(object):
 
 
 class DecagonModel(Model):
-    def __init__(self, placeholders, num_feat, nonzero_feat, edge_types, hidden_layer,l2,decoders, **kwargs):
+    def __init__(self, placeholders, num_feat, nonzero_feat, edge_types, hidden_layer, l2, decoders, **kwargs):
         super(DecagonModel, self).__init__(**kwargs)
         self.edge_types = edge_types
         self.num_edge_types = sum(self.edge_types.values())
@@ -67,34 +68,34 @@ class DecagonModel(Model):
         for i, j in self.edge_types:
             self.hidden1[i].append(GraphConvolutionSparseMulti(
                 input_dim=self.input_dim, output_dim=self.hidden_layer[0],
-                edge_type=(i,j), num_types=self.edge_types[i,j],
+                edge_type=(i, j), num_types=self.edge_types[i, j],
                 adj_mats=self.adj_mats, nonzero_feat=self.nonzero_feat,
-                act=tf.nn.relu, l2=self.l2,dropout=self.dropout,
+                act=tf.nn.relu, l2=self.l2, dropout=self.dropout,
                 logging=self.logging)(self.inputs[j]))
 
         for i, hid1 in self.hidden1.items():
             self.hidden1[i] = tf.nn.relu(tf.add_n(hid1))
-        self.hidden_last=self.hidden1
+        self.hidden_last = self.hidden1
 
-        for layer_n in range(1,len(self.hidden_layer)-1):
+        for layer_n in range(1, len(self.hidden_layer) - 1):
             self.hidden_new = defaultdict(list)
             for i, j in self.edge_types:
                 self.hidden_new[i].append(GraphConvolutionMulti(
-                    input_dim=self.hidden_layer[layer_n-1], output_dim=self.hidden_layer[layer_n],
-                    edge_type=(i,j), num_types=self.edge_types[i,j],
+                    input_dim=self.hidden_layer[layer_n - 1], output_dim=self.hidden_layer[layer_n],
+                    edge_type=(i, j), num_types=self.edge_types[i, j],
                     adj_mats=self.adj_mats,
-                    act=tf.nn.relu, l2=self.l2,dropout=self.dropout,
+                    act=tf.nn.relu, l2=self.l2, dropout=self.dropout,
                     logging=self.logging)(self.hidden_last[j]))
             for i, hid_n in self.hidden_new.items():
                 self.hidden_new[i] = tf.nn.relu(tf.add_n(hid_n))
-            self.hidden_last=self.hidden_new
+            self.hidden_last = self.hidden_new
 
         self.embeddings_reltyp = defaultdict(list)
         for i, j in self.edge_types:
             self.embeddings_reltyp[i].append(GraphConvolutionMulti(
                 input_dim=self.hidden_layer[-2], output_dim=self.hidden_layer[-1],
-                edge_type=(i,j), num_types=self.edge_types[i,j],
-                adj_mats=self.adj_mats, l2=self.l2,act=lambda x: x,
+                edge_type=(i, j), num_types=self.edge_types[i, j],
+                adj_mats=self.adj_mats, l2=self.l2, act=lambda x: x,
                 dropout=self.dropout, logging=self.logging)(self.hidden_last[j]))
 
         self.embeddings = [None] * self.num_obj_types

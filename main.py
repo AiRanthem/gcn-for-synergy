@@ -1,8 +1,9 @@
 from __future__ import division
+from __future__ import print_function
+
 from decagon.deep.model import DecagonModel
 from decagon.deep.optimizer import DecagonOptimizer
 from decagon.deep.minibatch import EdgeMinibatchIterator
-from __future__ import print_function
 
 from collections import OrderedDict, Counter
 import time
@@ -18,7 +19,6 @@ import tensorflow as tf
 import warnings
 
 warnings.filterwarnings("ignore")
-
 
 # Train on GPU
 # print("Num GPUs Available: ", len(tf.config.experimental.list_physical_devices('GPU')))
@@ -231,10 +231,12 @@ def construct_placeholders(edge_types):
     }
     placeholders.update({
         'adj_mats_%d,%d,%d' % (i, j, k): tf.sparse_placeholder(tf.float32)
-        for i, j in edge_types for k in range(edge_types[i, j])})
+        for i, j in edge_types for k in range(edge_types[i, j])
+    })
     placeholders.update({
         'feat_%d' % i: tf.sparse_placeholder(tf.float32)
-        for i, _ in edge_types})
+        for i, _ in edge_types
+    })
     return placeholders
 
 
@@ -398,11 +400,11 @@ for raw_epoch in range(FLAGS.Max_epoch):
         if itr % PRINT_PROGRESS_EVERY == 0:
             print("Edge:", "%-3s%-14s" % (batch_edge_type, idx2name[minibatch.current_edge_type_idx]),
                   "tra_loss=", "{:.3f}".format(
-                      train_cost), "\tval_loss=", "{:.3f}".format(val_cost),
+                    train_cost), "\tval_loss=", "{:.3f}".format(val_cost),
                   "\tval_roc=", "{:.3f}".format(
-                      val_auc), "\tval_auprc=", "{:.3f}".format(val_auprc),
+                    val_auc), "\tval_auprc=", "{:.3f}".format(val_auprc),
                   "\tval_bacc=", "{:.3f}".format(
-                      val_bacc), "\tval_acc=", "{:.3f}".format(val_acc),
+                    val_bacc), "\tval_acc=", "{:.3f}".format(val_acc),
                   "\tval_prec=", "{:.3f}".format(val_prec))
             output_Train_model[str(epoch + 1) + '&' + str((itr + 1))] = [batch_edge_type,
                                                                          idx2name[minibatch.current_edge_type_idx],
