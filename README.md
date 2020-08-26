@@ -1,4 +1,4 @@
- # GCN学习项目
+ # GCN-FOR-SYNERGY
 
 原作者介绍在这里 [INTRO](intro.md)
 
@@ -16,8 +16,7 @@ docker pull tensorflow/tensorflow:1.5.1-gpu-py3
 + scipy
 + sklearn
 
-## 笔记
-### 0.概述
+## 0.概述
 main.py 是一个训练模型的demo，指明了这个项目大致上的工作流程：
 1. 设置GPU
 2. 将所有参数放置在字典 [Model_Parameters] 中 （注意，所有默认值等都直接在这里修改，不要动下面的代码）
@@ -34,7 +33,7 @@ main.py 是一个训练模型的demo，指明了这个项目大致上的工作�
 通过通读 main 文件，大致认为要复用这个项目，可以利用作者的main文件，以之
 为基础进行二次开发。下一章先不谈论模型核心，分析main的复用重点。
 
-### 1.参数和变量反推——对Placeholder和FLAGS的分析
+## 1.参数和变量反推——对Placeholder和FLAGS的分析
 `FLAGS`是Tensorflow中简化命令行参数的一个机制。分析FLAGS得出通过命令行
 传参，用户可以轻松定义如下几个内容：
 
@@ -48,6 +47,24 @@ main.py 是一个训练模型的demo，指明了这个项目大致上的工作�
 | weight_decay|0|Weight for L2 loss on embedding matrix
 | l2 | 1 | l2
 | max_margin|0.1|Max margin parameter in hinge loss
+
+### placeholders的定义
+TODO 研究中
+
+|命名|类型|默认值|说明
+|---|---|---|---
+|batch|int32||
+|batch_neg|int32||
+|batch_pos_s|float32||
+batch_neg_s|float32||
+batch_edge_type_idx|int32||
+batch_row_edge_type|int32||
+batch_col_edge_type|int32||
+degrees|int32||
+dropout|int32|0|drooput
+adj_mats_%d,%d,%d|sparse| |每一种edgetype三元组对应的邻接矩阵
+feat_%d|sparse| |每一种edgetype二元组对应的feature矩阵(不懂)
+
 ### 反推的数据字典
 总体而言就是从数据集读取数据后进行预处理生成一些数据结构。
 
@@ -164,6 +181,10 @@ main.py 是一个训练模型的demo，指明了这个项目大致上的工作�
 0的意思是cell, 1的意思是drug.
 
 (0,1) (1,1)这种tuple就是`edgetype`
+>edgetype是这个项目的核心概念.有两种表示方式,一种是类似(0,1), (1,1)
+>这样的二元组,表示宏观上cell->drug或drug->drug等联系, 而还有一种是
+>类似(1,1,12)这样的三元组,主要出现在drug->drug中,第三个值是对应的cell_index.
+
 1 0这样的是`nodetype`
 
 通过这些字典,使用type查找相应的数据
@@ -203,7 +224,7 @@ main.py 是一个训练模型的demo，指明了这个项目大致上的工作�
 > value 如果是(1,1)那么是它对应的cell line的名字,否则是它对应的edgetype三元组.
 
 
- ### 2.EdgeMinibatchIterator分析
+ ## 2.EdgeMinibatchIterator分析
  阅读源码首行注释：
  >This minibatch iterator iterates over batches of 
     sampled edges or random pairs of co-occuring edges.
@@ -211,6 +232,68 @@ main.py 是一个训练模型的demo，指明了这个项目大致上的工作�
     placeholders -- tensorflow placeholders object
     batch_size -- size of the minibatches
 
- > 暂时无法理解这个Iterator的作用，先往下分析
+> 这个iterator比较发杂,也缺少文档,暂时先分析构造参数
 
 #### 构造参数
+基本都是上面原封不动的对象.
+```python
+from main import *
+minibatch = EdgeMinibatchIterator(
+    adj_mats=adj_mats_orig,
+    feat=feat,
+    edge_types=edge_types,
+    batch_size=FLAGS.batch_size,
+    val_test_size=Model_Parameters['val_test_size'], # 0.2 for drug-cel and cel-cel
+    nsz_fold=Model_Parameters['Negative sample size'], # 30
+    tra_f=tra_f_no_et,
+    test_edges_f=test_edges_f,
+    test_edges_t=test_edges_t,
+    val_edges_f=val_edges_f,
+    val_edges_t=val_edges_t,
+    tra_edges_t=tra_edges_t,
+    tra_edges_f=tra_edges_f,
+    labels_for_reg=labels_for_reg,
+    edge_type2idx=edge_type2idx,
+    idx2edge_type=idx2edge_type,
+    iter_len=sum(edge_types.values()),
+)
+```
+
+## 3.DecagonModel分析
+这部分只分析宏观上的模型结构,各种Layer放在下一部分
+#### 构造参数
+```python
+from main import *
+model = DecagonModel(
+    placeholders=placeholders,
+    num_feat=num_feat,
+    nonzero_feat=nonzero_feat,
+    edge_types=edge_types,
+    hidden_layer=Model_Parameters['hidden layer'], # [2048,1024]
+    l2=FLAGS.l2,
+    decoders=edge_type2decoder,
+)
+```
+所有的隐藏层容器都是一个dict, tuple->list. key是edgetype二元组, value是
+对应的edgetype的若干隐藏层
+
+对于每一种edgetype, 输入的特征维度是num_feat, 经过一层`GraphConvolutionSparseMulti`
+输出维度`hidden_layer[0]`接下来经过若干个`GraphConvolutionMulti`
+输出维度分别为`hidden_layer[:-1]`,最后一层embeddding层也是`GraphConvolutionMulti`
+输出维度`hidden_layer[-1]`
+
+最后一层的输出进行求和就是embedding
+
+每种edgetype对应不同的decoder, 分别是`InnerProductDecoder`, `DistMultDecoder`, 
+`BilinearDecoder`, `DEDICOMDecoder`, imput_dim是`hidden_layer[[-1]`
+输出不论这种edgetype二元组中有多少种num_type, 都是输出一个tensor. 也就是说, 最终
+就是按照四种edgetype decode出四个tensor. 这个tensor维度需要仔细分析Layer才能得出,
+这里先留白.
+
+另外, 根据decoder的不同, 每种edgetype二元组还能对应一组`latent_inters`和`latent_varies`
+从Model的代码中只发现进行了初始化为两个矩阵, 具体等待后续研究.
+
+## 4.DecagonOptimizer分析
+这部分主要分析整个模型的运行轨迹, 画出流程图.
+## 5.Layer分析
+各种layer的细节实现
