@@ -37,33 +37,33 @@ main.py 是一个训练模型的demo，指明了这个项目大致上的工作�
 `FLAGS`是Tensorflow中简化命令行参数的一个机制。分析FLAGS得出通过命令行
 传参，用户可以轻松定义如下几个内容：
 
-| 参数名 | 默认值 | 解释
-| :---: | :---: | :---: 
-| learning_rate | 0.001 | Initial learning rate
-| batch_size|20|minibatch size
-| Max_epoch|2|Max epoch
-| dropout|0.2|Dropout rate
-| bias | True | Bias term
-| weight_decay|0|Weight for L2 loss on embedding matrix
-| l2 | 1 | l2
-| max_margin|0.1|Max margin parameter in hinge loss
+|参数名|默认值|解释|
+| --- | --- | --- |
+| learning_rate | 0.001 | Initial learning rate|
+| batch_size|20|minibatch size|
+| Max_epoch|2|Max epoch|
+| dropout|0.2|Dropout rate|
+| bias | True | Bias term|
+| weight_decay|0|Weight for L2 loss on embedding matrix|
+| l2 | 1 | l2|
+| max_margin|0.1|Max margin parameter in hinge loss|
 
 ### placeholders的定义
 TODO 研究中
 
-|命名|类型|默认值|说明
-|---|---|---|---
+|命名|类型|默认值|说明|
+| --- | --- | --- | --- |
 |batch|int32||
 |batch_neg|int32||
 |batch_pos_s|float32||
-batch_neg_s|float32||
-batch_edge_type_idx|int32||
-batch_row_edge_type|int32||
-batch_col_edge_type|int32||
-degrees|int32||
-dropout|int32|0|drooput
-adj_mats_%d,%d,%d|sparse| |每一种edgetype三元组对应的邻接矩阵
-feat_%d|sparse| |每一种edgetype二元组对应的feature矩阵(不懂)
+|batch_neg_s|float32||
+|batch_edge_type_idx|int32||
+|batch_row_edge_type|int32||
+|batch_col_edge_type|int32||
+|degrees|int32||
+|dropout|int32|0|drooput|
+|adj_mats_%d,%d,%d|sparse| |每一种edgetype三元组对应的邻接矩阵|
+|feat_%d|sparse| |每一种edgetype二元组对应的feature矩阵(不懂)|
 
 ### 反推的数据字典
 总体而言就是从数据集读取数据后进行预处理生成一些数据结构。
@@ -78,12 +78,12 @@ feat_%d|sparse| |每一种edgetype二元组对应的feature矩阵(不懂)
 #### 矩阵
 不做特殊说明,所有矩阵均为scipy的csr_matrix稀疏矩阵对象
 
-|main中的对象名|size|说明
-|:---:|:---:|:---:
-|cel_adj|39*39|应该是描述cell和cell关系图的邻接矩阵,值含义未知
-|cel_drug_adj|39*38|应该是描述cell和drug关系图的邻接矩阵,值含义未知
-|drug_cel_adj|38*39|应该是描述drug和cell关系图的邻接矩阵,值含义未知
-|drug_drug_adj|38*38|是一个列表,共39项,每一项是一个38*38的csr,第i项就是index为i的cell line上两种药物是否协同作用超过阈值,是为1否则0
+|main中的对象名|size|说明|
+| --- | --- | --- |
+|cel_adj|39*39|应该是描述cell和cell关系图的邻接矩阵,值含义未知|
+|cel_drug_adj|39*38|应该是描述cell和drug关系图的邻接矩阵,值含义未知|
+|drug_cel_adj|38*39|应该是描述drug和cell关系图的邻接矩阵,值含义未知|
+|drug_drug_adj|38*38|是一个列表,共39项,每一项是一个38*38的csr,第i项就是index为i的cell line上两种药物是否协同作用超过阈值,是为1否则0|
 
 
 #### 其他对象
@@ -294,6 +294,11 @@ model = DecagonModel(
 从Model的代码中只发现进行了初始化为两个矩阵, 具体等待后续研究.
 
 ## 4.DecagonOptimizer分析
-这部分主要分析整个模型的运行轨迹, 画出流程图.
+### 获取Node Embedding的流程
+
+根据上一部分对Model的分析,可以画出Model的流程图
+
+<img src="asset/model_arch.jpg" style="zoom:33%;" />
+
 ## 5.Layer分析
 各种layer的细节实现
