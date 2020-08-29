@@ -282,13 +282,16 @@ model = DecagonModel(
 输出维度分别为`hidden_layer[:-1]`,最后一层embeddding层也是`GraphConvolutionMulti`
 输出维度`hidden_layer[-1]`
 
-最后一层的输出进行求和就是embedding
+到此为止一直是四路并行的,存储的数据结构是2*2的列表或字典
 
+最后(0,x)求和,(1,x)求和,就是最终的embedding,数据结构是长度2的列表.
+
+除了到embedding的一组GCN单元.
 每种edgetype对应不同的decoder, 分别是`InnerProductDecoder`, `DistMultDecoder`, 
 `BilinearDecoder`, `DEDICOMDecoder`, imput_dim是`hidden_layer[[-1]`
 输出不论这种edgetype二元组中有多少种num_type, 都是输出一个tensor. 也就是说, 最终
 就是按照四种edgetype decode出四个tensor. 这个tensor维度需要仔细分析Layer才能得出,
-这里先留白.
+存储decoder的数据结构是一个字典,key是edgetype二元组,value是对应的decoder.对象名`edge_type2decoder`
 
 另外, 根据decoder的不同, 每种edgetype二元组还能对应一组`latent_inters`和`latent_varies`
 从Model的代码中只发现进行了初始化为两个矩阵, 具体等待后续研究.
@@ -300,5 +303,25 @@ model = DecagonModel(
 
 <img src="asset/model_arch.jpg" style="zoom:33%;" />
 
+### 构造参数
+```python
+from main import *
+with tf.name_scope('optimizer'):
+    opt = DecagonOptimizer(
+        embeddings=model.embeddings, # 
+        latent_inters=model.latent_inters,
+        latent_varies=model.latent_varies,
+        degrees=degrees,
+        edge_types=edge_types,
+        edge_type2dim=edge_type2dim,
+        placeholders=placeholders,
+        batch_size=FLAGS.batch_size,
+        margin=FLAGS.max_margin,
+        neg_sample_weights=Model_Parameters['Neg_sample_weights'], # 1
+        LOSS=Model_Parameters['LOSS'], # Cross-entropy
+    )
+```
+optimizer中用到了数据结构`latent_inters`和`latent_varies`应用于某种算法,但是
+由于文档缺失我单看代码不是很能理解这种算法.
 ## 5.Layer分析
-各种layer的细节实现
+TODO
